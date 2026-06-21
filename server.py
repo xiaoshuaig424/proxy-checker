@@ -81,13 +81,16 @@ os.makedirs(REPO_DIR, exist_ok=True)
 CHECKED_DIR = os.path.join(BASE_DIR, 'checked_data')
 os.makedirs(CHECKED_DIR, exist_ok=True)
 
-# Auto mode persistence — per-token schedule and run state
-AUTO_DIR = os.path.join(BASE_DIR, 'auto_data')
+# Auto mode persistence — per-token schedule and run state (保存到 REPO_DIR 以便同步到 GitHub)
+AUTO_DIR = os.path.join(REPO_DIR, 'auto_data')
 os.makedirs(AUTO_DIR, exist_ok=True)
 
 # Run log persistence — per-token manual and auto task summaries
 RUN_LOG_DIR = os.path.join(BASE_DIR, 'run_logs')
 os.makedirs(RUN_LOG_DIR, exist_ok=True)
+
+# Config local path (保存到 REPO_DIR 以便同步到 GitHub)
+CONFIG_LOCAL_SYNC_PATH = os.path.join(REPO_DIR, 'config.local.json')
 
 # === Fetch free proxies from external sources ===
 try:
@@ -1047,6 +1050,13 @@ def make_auth_cookie(token, max_age=AUTH_SESSION_SECONDS):
 
 
 def read_local_config():
+    # 优先读取 REPO_DIR 中的配置（用于 GitHub 同步）
+    if os.path.isfile(CONFIG_LOCAL_SYNC_PATH):
+        data = read_json_file(CONFIG_LOCAL_SYNC_PATH, {})
+        if isinstance(data, dict) and data:
+            return data
+
+    # 兼容旧位置的配置
     if not os.path.isfile(CONFIG_LOCAL_PATH):
         return {}
     data = read_json_file(CONFIG_LOCAL_PATH, {})
@@ -1055,7 +1065,9 @@ def read_local_config():
 
 def write_local_config(data):
     cleaned = data if isinstance(data, dict) else {}
+    # 同时写入两个位置（旧位置用于兼容，新位置用于 GitHub 同步）
     atomic_write_json(CONFIG_LOCAL_PATH, cleaned)
+    atomic_write_json(CONFIG_LOCAL_SYNC_PATH, cleaned)
     return cleaned
 
 
@@ -1135,6 +1147,17 @@ def save_runtime_settings(settings):
     if password_changed:
         local_config["auth_password"] = AUTH_PASSWORD
     write_local_config(local_config)
+
+    # 触发 GitHub 同步（后台）
+    if GITHUB_ENABLED and GITHUB_AUTO_SYNC:
+        def sync_in_background():
+            ok, msg = sync_to_github()
+            if ok:
+                log.info(f"设置已同步到 GitHub: {msg}")
+            else:
+                log.warning(f"设置同步到 GitHub 失败: {msg}")
+        threading.Thread(target=sync_in_background, daemon=True).start()
+
     return password_changed
 
 # ============================================================
@@ -1191,6 +1214,17 @@ def save_auto_record(token, record):
     history = state.get("history")
     state["history"] = history[-20:] if isinstance(history, list) else []
     atomic_write_json(auto_json_path(token), {"config": config, "state": state})
+
+    # 触发 GitHub 同步（后台）
+    if GITHUB_ENABLED and GITHUB_AUTO_SYNC:
+        def sync_in_background():
+            ok, msg = sync_to_github()
+            if ok:
+                log.info(f"自动任务配置已同步到 GitHub: {msg}")
+            else:
+                log.warning(f"自动任务配置同步到 GitHub 失败: {msg}")
+        threading.Thread(target=sync_in_background, daemon=True).start()
+
     return {"config": config, "state": state}
 
 
