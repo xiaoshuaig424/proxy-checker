@@ -20,9 +20,9 @@ RUN chmod +x /entrypoint.sh && \
 ENV PORT=8888 \
     AUTH_PASSWORD=linux.do \
     APP_TIMEZONE=Asia/Shanghai \
-    GIT_BRANCH=main \
-    GIT_SYNC_INTERVAL=180 \
-    GIT_AUTO_PUSH=true
+    GITHUB_BRANCH=main \
+    GITHUB_SYNC_INTERVAL=180 \
+    GITHUB_AUTO_PUSH=true
 
 EXPOSE 8888
 VOLUME /data

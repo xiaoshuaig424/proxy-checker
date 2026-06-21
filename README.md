@@ -265,6 +265,12 @@ linux.do
 | `timezone` | `APP_TIMEZONE` | `UTC` | 默认展示和计划任务时区 |
 | `port` | `PORT` | `8888` | HTTP 服务端口 |
 | `log_file` | `LOG_FILE` | `server.log` | 服务日志路径 |
+| `github_repo_url` | `GITHUB_REPO_URL` | `` | GitHub 仓库地址（如 `https://github.com/user/repo.git`） |
+| `github_token` | `GITHUB_TOKEN` | `` | GitHub Personal Access Token |
+| `github_branch` | `GITHUB_BRANCH` | `main` | GitHub 分支名称 |
+| `github_auto_sync` | `GITHUB_AUTO_SYNC` | `true` | 是否启用 GitHub 自动同步 |
+| `github_sync_on_save` | `GITHUB_SYNC_ON_SAVE` | `true` | 保存到云端时自动同步到 GitHub |
+| `github_sync_on_restore` | `GITHUB_SYNC_ON_RESTORE` | `true` | 恢复云端数据时先从 GitHub 拉取 |
 
 ## systemd 示例
 
