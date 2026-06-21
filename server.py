@@ -848,9 +848,20 @@ def init_git_repo():
 
         # 检查是否已经是 git 仓库
         if not os.path.exists(os.path.join(REPO_DIR, ".git")):
-            # 初始化 git 仓库
-            subprocess.run(["git", "init"], cwd=REPO_DIR, check=True, timeout=10)
-            log.info("Git 仓库初始化完成")
+            # 初始化 git 仓库，指定初始分支名
+            subprocess.run(["git", "init", "-b", GITHUB_BRANCH], cwd=REPO_DIR, check=True, timeout=10)
+            log.info(f"Git 仓库初始化完成，分支: {GITHUB_BRANCH}")
+        else:
+            # 检查当前分支名
+            result = subprocess.run(["git", "branch", "--show-current"],
+                                   cwd=REPO_DIR, capture_output=True, text=True, timeout=5)
+            current_branch = result.stdout.strip()
+
+            # 如果当前分支不是目标分支，则重命名
+            if current_branch and current_branch != GITHUB_BRANCH:
+                subprocess.run(["git", "branch", "-M", GITHUB_BRANCH],
+                             cwd=REPO_DIR, check=True, timeout=5)
+                log.info(f"Git 分支已重命名: {current_branch} -> {GITHUB_BRANCH}")
 
         # 配置 git 用户信息
         subprocess.run(["git", "config", "user.name", "Proxy Checker Bot"], cwd=REPO_DIR, timeout=5)
@@ -883,6 +894,9 @@ def init_git_repo():
         return False, "Git 操作超时"
     except subprocess.CalledProcessError as e:
         return False, f"Git 操作失败: {e}"
+    except Exception as e:
+        log.error(f"初始化 Git 仓库失败: {e}", exc_info=True)
+        return False, f"初始化失败: {str(e)}"
     except Exception as e:
         log.error(f"初始化 Git 仓库失败: {e}", exc_info=True)
         return False, f"初始化失败: {str(e)}"
