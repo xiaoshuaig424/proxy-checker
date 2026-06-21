@@ -51,6 +51,26 @@ def get_config_int(key, env_name, default):
     except (TypeError, ValueError):
         return default
 
+
+def get_config_bool(key, env_name, default):
+    value = get_config_value(key, env_name, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes", "on")
+    return bool(value)
+
+# ============================================================
+# GitHub 同步配置
+# ============================================================
+GITHUB_REPO_URL = str(get_config_value("github_repo_url", "GITHUB_REPO_URL", ""))
+GITHUB_TOKEN = str(get_config_value("github_token", "GITHUB_TOKEN", ""))
+GITHUB_BRANCH = str(get_config_value("github_branch", "GITHUB_BRANCH", "main"))
+GITHUB_AUTO_SYNC = get_config_bool("github_auto_sync", "GITHUB_AUTO_SYNC", True)
+GITHUB_SYNC_ON_SAVE = get_config_bool("github_sync_on_save", "GITHUB_SYNC_ON_SAVE", True)
+GITHUB_SYNC_ON_RESTORE = get_config_bool("github_sync_on_restore", "GITHUB_SYNC_ON_RESTORE", True)
+GITHUB_ENABLED = bool(GITHUB_REPO_URL and GITHUB_TOKEN)
+
 # ============================================================
 # My Repository — save/retrieve repo proxies as txt
 # ============================================================
@@ -96,6 +116,149 @@ except Exception:
 LOG_FILE_PATH = str(get_config_value("log_file", "LOG_FILE", os.path.join(BASE_DIR, "server.log")))
 if not os.path.isabs(LOG_FILE_PATH):
     LOG_FILE_PATH = os.path.join(BASE_DIR, LOG_FILE_PATH)
+
+# ============================================================
+# GitHub 同步功能
+# ============================================================
+git_sync_lock = threading.Lock()
+
+
+def init_git_repo():
+    """初始化 Git 仓库"""
+    if not GITHUB_ENABLED:
+        return False, "GitHub 同步未配置"
+
+    try:
+        # 检查是否已经是 git 仓库
+        result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=REPO_DIR,
+            capture_output=True,
+            timeout=5
+        )
+
+        if result.returncode != 0:
+            # 初始化 git 仓库
+            subprocess.run(["git", "init"], cwd=REPO_DIR, check=True, timeout=5)
+            subprocess.run(["git", "config", "user.name", "Proxy Checker"], cwd=REPO_DIR, check=True, timeout=5)
+            subprocess.run(["git", "config", "user.email", "proxy-checker@local"], cwd=REPO_DIR, check=True, timeout=5)
+
+            # 设置远程仓库
+            auth_url = GITHUB_REPO_URL.replace("https://", f"https://{GITHUB_TOKEN}@")
+            subprocess.run(["git", "remote", "add", "origin", auth_url], cwd=REPO_DIR, check=True, timeout=5)
+            subprocess.run(["git", "branch", "-M", GITHUB_BRANCH], cwd=REPO_DIR, check=True, timeout=5)
+
+            log.info("Git 仓库初始化成功")
+
+        return True, "Git 仓库就绪"
+    except subprocess.TimeoutExpired:
+        return False, "Git 操作超时"
+    except subprocess.CalledProcessError as e:
+        return False, f"Git 初始化失败: {e}"
+    except Exception as e:
+        return False, f"Git 初始化异常: {str(e)}"
+
+
+def sync_to_github():
+    """同步到 GitHub (后台线程)"""
+    if not GITHUB_ENABLED or not GITHUB_AUTO_SYNC:
+        return False, "GitHub 同步未启用"
+
+    with git_sync_lock:
+        try:
+            # 确保 git 仓库已初始化
+            ok, msg = init_git_repo()
+            if not ok:
+                return False, msg
+
+            # 添加所有更改
+            subprocess.run(["git", "add", "."], cwd=REPO_DIR, check=True, timeout=10)
+
+            # 检查是否有变更
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=REPO_DIR,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if not result.stdout.strip():
+                return True, "没有需要同步的变更"
+
+            # 提交变更
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            commit_msg = f"Auto sync: {timestamp}"
+            subprocess.run(
+                ["git", "commit", "-m", commit_msg],
+                cwd=REPO_DIR,
+                check=True,
+                timeout=10
+            )
+
+            # 推送到远程
+            subprocess.run(
+                ["git", "push", "-u", "origin", GITHUB_BRANCH],
+                cwd=REPO_DIR,
+                check=True,
+                timeout=30
+            )
+
+            log.info(f"成功同步到 GitHub: {commit_msg}")
+            return True, "同步成功"
+
+        except subprocess.TimeoutExpired:
+            return False, "Git 操作超时"
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
+            log.error(f"GitHub 同步失败: {error_msg}")
+            return False, f"同步失败: {error_msg}"
+        except Exception as e:
+            log.error(f"GitHub 同步异常: {str(e)}")
+            return False, f"同步异常: {str(e)}"
+
+
+def pull_from_github():
+    """从 GitHub 拉取最新数据"""
+    if not GITHUB_ENABLED or not GITHUB_AUTO_SYNC:
+        return False, "GitHub 同步未启用"
+
+    with git_sync_lock:
+        try:
+            # 确保 git 仓库已初始化
+            ok, msg = init_git_repo()
+            if not ok:
+                return False, msg
+
+            # 拉取远程更新
+            subprocess.run(
+                ["git", "pull", "origin", GITHUB_BRANCH, "--rebase"],
+                cwd=REPO_DIR,
+                check=True,
+                timeout=30
+            )
+
+            log.info("成功从 GitHub 拉取数据")
+            return True, "拉取成功"
+
+        except subprocess.TimeoutExpired:
+            return False, "Git 操作超时"
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
+            log.error(f"GitHub 拉取失败: {error_msg}")
+            return False, f"拉取失败: {error_msg}"
+        except Exception as e:
+            log.error(f"GitHub 拉取异常: {str(e)}")
+            return False, f"拉取异常: {str(e)}"
+
+
+def sync_to_github_async():
+    """异步执行 GitHub 同步"""
+    def _sync():
+        sync_to_github()
+
+    thread = threading.Thread(target=_sync, daemon=True)
+    thread.start()
 
 # --- Logging ---
 logging.basicConfig(
@@ -665,6 +828,151 @@ def server_time_payload(timezone_id=None):
         "server_text": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
         "server_timezone": time.strftime("%Z", time.localtime(now)),
     }
+
+
+# ============================================================
+# GitHub 同步功能
+# ============================================================
+def init_git_repo():
+    """初始化 Git 仓库并配置远程地址"""
+    if not GITHUB_ENABLED:
+        return False, "GitHub 同步未启用,请配置 GITHUB_REPO_URL 和 GITHUB_TOKEN"
+
+    try:
+        import subprocess
+
+        # 检查 git 是否可用
+        result = subprocess.run(["git", "--version"], capture_output=True, timeout=5)
+        if result.returncode != 0:
+            return False, "Git 未安装"
+
+        # 检查是否已经是 git 仓库
+        if not os.path.exists(os.path.join(REPO_DIR, ".git")):
+            # 初始化 git 仓库
+            subprocess.run(["git", "init"], cwd=REPO_DIR, check=True, timeout=10)
+            log.info("Git 仓库初始化完成")
+
+        # 配置 git 用户信息
+        subprocess.run(["git", "config", "user.name", "Proxy Checker Bot"], cwd=REPO_DIR, timeout=5)
+        subprocess.run(["git", "config", "user.email", "bot@proxy-checker.local"], cwd=REPO_DIR, timeout=5)
+
+        # 配置远程仓库地址(包含 token)
+        if GITHUB_TOKEN and GITHUB_REPO_URL:
+            # 从 URL 中提取仓库信息
+            repo_url = GITHUB_REPO_URL.replace("https://", "").replace("http://", "")
+            auth_url = f"https://{GITHUB_TOKEN}@{repo_url}"
+
+            # 检查是否已有 origin
+            result = subprocess.run(["git", "remote", "get-url", "origin"],
+                                   cwd=REPO_DIR, capture_output=True, timeout=5)
+
+            if result.returncode == 0:
+                # 更新远程地址
+                subprocess.run(["git", "remote", "set-url", "origin", auth_url],
+                             cwd=REPO_DIR, check=True, timeout=5)
+            else:
+                # 添加远程地址
+                subprocess.run(["git", "remote", "add", "origin", auth_url],
+                             cwd=REPO_DIR, check=True, timeout=5)
+
+            log.info("Git 远程仓库配置完成")
+
+        return True, "Git 仓库初始化成功"
+
+    except subprocess.TimeoutExpired:
+        return False, "Git 操作超时"
+    except subprocess.CalledProcessError as e:
+        return False, f"Git 操作失败: {e}"
+    except Exception as e:
+        log.error(f"初始化 Git 仓库失败: {e}", exc_info=True)
+        return False, f"初始化失败: {str(e)}"
+
+
+def sync_to_github():
+    """同步仓库数据到 GitHub"""
+    if not GITHUB_ENABLED:
+        return False, "GitHub 同步未启用"
+
+    if not GITHUB_AUTO_SYNC:
+        return False, "GitHub 自动同步已禁用"
+
+    try:
+        import subprocess
+
+        # 初始化仓库
+        ok, msg = init_git_repo()
+        if not ok:
+            return False, msg
+
+        # 检查是否有变更
+        result = subprocess.run(["git", "status", "--porcelain"],
+                              cwd=REPO_DIR, capture_output=True, text=True, timeout=10)
+
+        if not result.stdout.strip():
+            log.info("没有需要同步的变更")
+            return True, "没有需要同步的变更"
+
+        # 添加所有变更
+        subprocess.run(["git", "add", "."], cwd=REPO_DIR, check=True, timeout=10)
+
+        # 提交变更
+        commit_msg = f"自动同步代理仓库数据 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        subprocess.run(["git", "commit", "-m", commit_msg],
+                      cwd=REPO_DIR, check=True, timeout=10)
+
+        # 推送到远程
+        subprocess.run(["git", "push", "origin", GITHUB_BRANCH, "--force"],
+                      cwd=REPO_DIR, check=True, timeout=30)
+
+        log.info(f"成功同步到 GitHub: {GITHUB_BRANCH}")
+        return True, f"成功同步到 GitHub 分支 {GITHUB_BRANCH}"
+
+    except subprocess.TimeoutExpired:
+        return False, "GitHub 同步超时"
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
+        log.error(f"GitHub 同步失败: {error_msg}")
+        return False, f"同步失败: {error_msg[:200]}"
+    except Exception as e:
+        log.error(f"GitHub 同步异常: {e}", exc_info=True)
+        return False, f"同步异常: {str(e)}"
+
+
+def pull_from_github():
+    """从 GitHub 拉取最新数据"""
+    if not GITHUB_ENABLED:
+        return False, "GitHub 同步未启用"
+
+    try:
+        import subprocess
+
+        # 初始化仓库
+        ok, msg = init_git_repo()
+        if not ok:
+            return False, msg
+
+        # 尝试拉取
+        try:
+            subprocess.run(["git", "pull", "origin", GITHUB_BRANCH],
+                          cwd=REPO_DIR, check=True, timeout=30)
+            log.info(f"成功从 GitHub 拉取: {GITHUB_BRANCH}")
+            return True, f"成功从 GitHub 拉取 {GITHUB_BRANCH}"
+        except subprocess.CalledProcessError:
+            # 如果拉取失败,可能是首次推送,尝试强制拉取
+            log.warning("首次拉取失败,尝试 fetch")
+            subprocess.run(["git", "fetch", "origin", GITHUB_BRANCH],
+                          cwd=REPO_DIR, check=True, timeout=30)
+            return True, "从 GitHub 获取数据成功"
+
+    except subprocess.TimeoutExpired:
+        return False, "从 GitHub 拉取超时"
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
+        log.error(f"从 GitHub 拉取失败: {error_msg}")
+        return False, f"拉取失败: {error_msg[:200]}"
+    except Exception as e:
+        log.error(f"从 GitHub 拉取异常: {e}", exc_info=True)
+        return False, f"拉取异常: {str(e)}"
 
 
 def is_auth_enabled():
@@ -1879,6 +2187,19 @@ class Handler(SimpleHTTPRequestHandler):
                         return
                     response["url"] = f"/api/repo/{token}.json"
                     log.info("Repo saved (JSON)", extra={"token": token, "mode": response["mode"], "count": response["count"], "submitted_count": response["submitted_count"]})
+
+                    # GitHub 同步 - 保存后自动同步
+                    if GITHUB_ENABLED and GITHUB_SYNC_ON_SAVE:
+                        def sync_in_background():
+                            ok, msg = sync_to_github()
+                            if ok:
+                                log.info(f"GitHub 同步成功: {msg}")
+                            else:
+                                log.warning(f"GitHub 同步失败: {msg}")
+
+                        threading.Thread(target=sync_in_background, daemon=True).start()
+                        response["github_sync"] = "triggered"
+
                     self._json(200, response)
                 else:
                     legacy_repo = [{"proxy": proxy} for proxy in proxies]
@@ -1889,7 +2210,35 @@ class Handler(SimpleHTTPRequestHandler):
                         return
                     response["url"] = f"/api/repo/{token}.txt"
                     log.info("Repo saved (txt)", extra={"token": token, "mode": response["mode"], "count": response["count"], "submitted_count": response["submitted_count"]})
+
+                    # GitHub 同步 - 保存后自动同步
+                    if GITHUB_ENABLED and GITHUB_SYNC_ON_SAVE:
+                        def sync_in_background():
+                            ok, msg = sync_to_github()
+                            if ok:
+                                log.info(f"GitHub 同步成功: {msg}")
+                            else:
+                                log.warning(f"GitHub 同步失败: {msg}")
+
+                        threading.Thread(target=sync_in_background, daemon=True).start()
+                        response["github_sync"] = "triggered"
+
                     self._json(200, response)
+
+            elif self.path == "/api/repo/sync-github":
+                # 手动触发 GitHub 同步
+                if not GITHUB_ENABLED:
+                    self._json(200, {"ok": False, "error": "GitHub 同步未启用,请配置 GITHUB_REPO_URL 和 GITHUB_TOKEN"})
+                    return
+
+                action = body.get("action", "push")  # push or pull
+
+                if action == "pull":
+                    ok, msg = pull_from_github()
+                else:
+                    ok, msg = sync_to_github()
+
+                self._json(200, {"ok": ok, "message": msg, "action": action})
 
             elif self.path == "/api/fetch-proxies":
                 # Fetch proxies from external sources

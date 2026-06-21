@@ -664,7 +664,15 @@ function renderLimitedList(items,listKey,emptyText){
 function renderResultLists(){
   var validFilter=activeFilter('#vFilters');
   var invalidFilter=activeFilter('#fFilters');
-  var validItems=V.concat(U).filter(function(r){return resultPassesValidFilter(r,validFilter)});
+  var validItems=V.concat(U).filter(function(r){
+    if(!resultPassesValidFilter(r,validFilter))return false;
+    // 应用国家筛选
+    if(currentValidCountryFilter!=='all'){
+      var country=r.country?String(r.country).toUpperCase():'';
+      if(country!==currentValidCountryFilter)return false;
+    }
+    return true;
+  });
   var invalidItems=F.filter(function(r){return resultPassesInvalidFilter(r,invalidFilter)});
   validList.innerHTML=renderLimitedList(validItems,'valid','等待检测...');
   failList.innerHTML=renderLimitedList(invalidItems,'invalid','等待检测...');
@@ -1985,7 +1993,117 @@ function repoPassesFilter(p,f){
   if(f==='dc')return p.ip_type==='datacenter';
   if(f==='res')return p.ip_type==='residential';
   if(f==='country')return !!country;
+  // 国家筛选
+  if(f.startsWith('country_')){
+    var targetCountry=f.replace('country_','').toUpperCase();
+    return country===targetCountry;
+  }
   return true;
+}
+
+// ============================================================
+// 国家筛选功能
+// ============================================================
+var currentCountryFilter='all';
+var currentValidCountryFilter='all';
+
+function getAvailableCountries(){
+  var repo=loadRepo();
+  var countries={};
+  repo.forEach(function(item){
+    var country=item.country?String(item.country).toUpperCase():'';
+    if(country){
+      countries[country]=(countries[country]||0)+1;
+    }
+  });
+  var list=[];
+  for(var code in countries){
+    list.push({code:code,count:countries[code]});
+  }
+  list.sort(function(a,b){return b.count-a.count});
+  return list;
+}
+
+function getAvailableCountriesFromValid(){
+  var validItems=V.concat(U);
+  var countries={};
+  validItems.forEach(function(item){
+    var country=item.country?String(item.country).toUpperCase():'';
+    if(country){
+      countries[country]=(countries[country]||0)+1;
+    }
+  });
+  var list=[];
+  for(var code in countries){
+    list.push({code:code,count:countries[code]});
+  }
+  list.sort(function(a,b){return b.count-a.count});
+  return list;
+}
+
+function setCountryFilter(countryCode){
+  currentCountryFilter=countryCode;
+  document.getElementById('countryFilterDropdown').classList.remove('open');
+  var btn=document.getElementById('countryFilterBtn');
+  if(countryCode==='all'){
+    btn.innerHTML='🌍 全部国家 ▾';
+  }else{
+    btn.innerHTML='🌍 '+esc(countryCode)+' ▾';
+  }
+  resetResultRenderLimits('repo');
+  renderRepo();
+}
+
+function setValidCountryFilter(countryCode){
+  currentValidCountryFilter=countryCode;
+  document.getElementById('validCountryFilterDropdown').classList.remove('open');
+  var btn=document.getElementById('validCountryFilterBtn');
+  if(countryCode==='all'){
+    btn.innerHTML='🌍 全部国家 ▾';
+  }else{
+    btn.innerHTML='🌍 '+esc(countryCode)+' ▾';
+  }
+  resetResultRenderLimits('valid');
+  renderResultLists();
+}
+
+function toggleCountryFilterMenu(){
+  var dropdown=document.getElementById('countryFilterDropdown');
+  if(!dropdown)return;
+  dropdown.classList.toggle('open');
+
+  // 动态渲染国家列表
+  if(dropdown.classList.contains('open')){
+    var menu=document.getElementById('countryFilterMenu');
+    if(!menu)return;
+    var countries=getAvailableCountries();
+    var html='<div class="fetch-menu-item" onclick="setCountryFilter(\'all\')">🌍 全部国家 <span class="fetch-count">'+loadRepo().length+'</span></div>';
+    countries.forEach(function(item){
+      var active=currentCountryFilter===item.code?' <span style="color:#22c55e;margin-left:auto">✅</span>':'';
+      html+='<div class="fetch-menu-item" onclick="setCountryFilter(\''+esc(item.code)+'\')">🌍 '+esc(item.code)+' <span class="fetch-count">'+item.count+'</span>'+active+'</div>';
+    });
+    menu.innerHTML=html;
+  }
+}
+
+function toggleValidCountryFilterMenu(){
+  var dropdown=document.getElementById('validCountryFilterDropdown');
+  if(!dropdown)return;
+  dropdown.classList.toggle('open');
+
+  // 动态渲染国家列表
+  if(dropdown.classList.contains('open')){
+    var menu=document.getElementById('validCountryFilterMenu');
+    if(!menu)return;
+    var countries=getAvailableCountriesFromValid();
+    var totalValid=V.concat(U).length;
+    var html='<div class="fetch-menu-item" onclick="setValidCountryFilter(\'all\')">🌍 全部国家 <span class="fetch-count">'+totalValid+'</span></div>';
+    countries.forEach(function(item){
+      var active=currentValidCountryFilter===item.code?' <span style="color:#22c55e;margin-left:auto">✅</span>':'';
+      html+='<div class="fetch-menu-item" onclick="setValidCountryFilter(\''+esc(item.code)+'\')">🌍 '+esc(item.code)+' <span class="fetch-count">'+item.count+'</span>'+active+'</div>';
+    });
+    menu.innerHTML=html;
+  }
 }
 
 function renderRepo(){
@@ -2000,7 +2118,16 @@ function renderRepo(){
   var html='';
   var displayRepo=repo.map(function(p,i){return {item:p,index:i}}).sort(function(a,b){
     return (b.item.updated||b.item.added||0)-(a.item.updated||a.item.added||0);
-  }).filter(function(entry){return repoPassesFilter(entry.item,activeFilter('#repoFilters'))});
+  }).filter(function(entry){
+    // 应用普通筛选
+    if(!repoPassesFilter(entry.item,activeFilter('#repoFilters')))return false;
+    // 应用国家筛选
+    if(currentCountryFilter!=='all'){
+      var country=entry.item.country?String(entry.item.country).toUpperCase():'';
+      if(country!==currentCountryFilter)return false;
+    }
+    return true;
+  });
   if(!displayRepo.length){
     list.innerHTML='<div class="empty">当前筛选没有匹配的仓库代理</div>';
     return;
@@ -2090,9 +2217,41 @@ function restoreRepoFromCloud(){
   var local=loadRepo();
   if(local.length>0 && !confirm('清空本地仓库并从云端恢复？'))return;
   try{localStorage.removeItem('repo_manually_cleared')}catch(e){}
-  loadRepoFromServer(function(count){
-    if(count>0) toast('已从云端恢复 '+count+' 个代理');
-    else toast('云端没有仓库数据');
+
+  // 先从 GitHub 拉取最新数据
+  toast('正在从 GitHub 拉取最新数据...');
+  post('/api/repo/sync-github',{action:'pull'},function(err,res){
+    if(err){
+      toast('GitHub 拉取失败: '+err+'，继续从云端恢复');
+    }else if(res&&res.ok){
+      toast('GitHub 拉取成功: '+res.message);
+    }
+
+    // 然后从云端加载
+    loadRepoFromServer(function(count){
+      if(count>0) toast('已从云端恢复 '+count+' 个代理');
+      else toast('云端没有仓库数据');
+    });
+  });
+}
+
+// ============================================================
+// 手动触发 GitHub 同步
+// ============================================================
+function syncGithubManually(){
+  if(!requireAuthenticatedUI())return;
+  document.getElementById('repoCloudDropdown').classList.remove('open');
+  toast('正在同步 GitHub...');
+  post('/api/repo/sync-github',{action:'push'},function(err,res){
+    if(err){
+      toast('GitHub 同步失败: '+err);
+      return;
+    }
+    if(res&&res.ok){
+      toast('GitHub 同步成功: '+res.message);
+    }else{
+      toast('GitHub 同步失败: '+(res&&res.error||'未知错误'));
+    }
   });
 }
 
@@ -2112,6 +2271,14 @@ document.addEventListener('click',function(e){
   if(!e.target.closest('#repoClearDropdown')){
     var clearDropdown=document.getElementById('repoClearDropdown');
     if(clearDropdown)clearDropdown.classList.remove('open');
+  }
+  if(!e.target.closest('#countryFilterDropdown')){
+    var countryDropdown=document.getElementById('countryFilterDropdown');
+    if(countryDropdown)countryDropdown.classList.remove('open');
+  }
+  if(!e.target.closest('#validCountryFilterDropdown')){
+    var validCountryDropdown=document.getElementById('validCountryFilterDropdown');
+    if(validCountryDropdown)validCountryDropdown.classList.remove('open');
   }
 });
 
@@ -2171,6 +2338,8 @@ function saveRepoToCloud(){
   var repo=loadRepo();
   if(!repo.length){toast('仓库为空，无需保存');return}
   var token=getUserToken();
+  var statusMsg='正在保存到云端...';
+  toast(statusMsg);
   post('/api/repo/save',{repo:repo,token:token,mode:'merge',base_count:getRepoBaseCount(repo)},function(err,res){
     if(err){toast('保存失败: '+err);return}
     if(res&&res.stale_repo){
@@ -2181,7 +2350,11 @@ function saveRepoToCloud(){
     if(res&&res.ok){
       rememberRepoSync(res.count);
       updateCloudRepoCount();
-      toast('已保存 '+res.count+' 个代理到云端');
+      var msg='已保存 '+res.count+' 个代理到云端';
+      if(res.github_sync==='triggered'){
+        msg+='，正在同步 GitHub...';
+      }
+      toast(msg);
     }
   });
 }

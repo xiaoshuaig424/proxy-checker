@@ -10,5 +10,11 @@
   "run_log_limit": 100,
   "timezone": "UTC",
   "port": 8888,
-  "log_file": "server.log"
+  "log_file": "server.log",
+  "github_repo_url": "",
+  "github_token": "",
+  "github_branch": "main",
+  "github_auto_sync": true,
+  "github_sync_on_save": true,
+  "github_sync_on_restore": true
 }

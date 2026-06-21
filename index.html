@@ -309,6 +309,12 @@ textarea::-webkit-scrollbar-thumb:hover{background:rgba(124,92,252,.5)}
 <button class="fbtn" data-f="fast">⚡ &lt;1秒</button>
 <button class="fbtn" data-f="mid">⏱️ 1-3秒</button>
 <button class="fbtn" data-f="slow">⏳ &gt;3秒</button>
+<div class="fetch-dropdown" id="validCountryFilterDropdown">
+<button class="fbtn" id="validCountryFilterBtn" onclick="toggleValidCountryFilterMenu()">🌍 全部国家 ▾</button>
+<div class="fetch-menu" id="validCountryFilterMenu">
+<div class="fetch-menu-item" onclick="setValidCountryFilter('all')">🌍 全部国家</div>
+</div>
+</div>
 </div>
 <div style="display:flex;gap:6px;align-items:center">
 <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;color:#ef4444;border-color:rgba(239,68,68,.3)" onclick="clearValid()">&#129529; 清空</button>
@@ -360,6 +366,12 @@ textarea::-webkit-scrollbar-thumb:hover{background:rgba(124,92,252,.5)}
 <div class="grade-menu-item" onclick="setRepoGradeFilter('grade_d','等级D')"><span class="grade-dot" style="background:#f97316"></span>等级 D</div>
 </div>
 </div>
+<div class="fetch-dropdown" id="countryFilterDropdown">
+<button class="fbtn" id="countryFilterBtn" onclick="toggleCountryFilterMenu()">🌍 全部国家 ▾</button>
+<div class="fetch-menu" id="countryFilterMenu">
+<div class="fetch-menu-item" onclick="setCountryFilter('all')">🌍 全部国家</div>
+</div>
+</div>
 <button class="fbtn" data-f="service">🌐 服务可达</button>
 <button class="fbtn" data-f="api">🔌 API域名可达</button>
 <button class="fbtn" data-f="cf">🛡️ 网页CF未拦截</button>
@@ -395,6 +407,7 @@ textarea::-webkit-scrollbar-thumb:hover{background:rgba(124,92,252,.5)}
 <div class="fetch-menu" id="repoCloudMenu">
 <div class="fetch-menu-item" onclick="restoreRepoFromCloud()">&#128260; 恢复云端数据 <span class="fetch-count" id="repoCloudCount">--</span></div>
 <div class="fetch-menu-item" onclick="saveRepoToCloud()">&#128190; 保存到云端</div>
+<div class="fetch-menu-item" onclick="syncGithubManually()">&#128279; 手动同步 GitHub</div>
 </div>
 </div>
 <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;color:#60a5fa;border-color:rgba(96,165,250,.3)" onclick="getRepoLink(this)">&#128279; 仓库链接</button>
