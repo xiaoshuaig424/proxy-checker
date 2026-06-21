@@ -74,7 +74,11 @@ GITHUB_ENABLED = bool(GITHUB_REPO_URL and GITHUB_TOKEN)
 # ============================================================
 # My Repository — save/retrieve repo proxies as txt
 # ============================================================
-REPO_DIR = os.path.join(BASE_DIR, 'repo_data')
+# 使用 /data 目录以便与 Docker volume 和 entrypoint.sh 同步
+REPO_DIR = os.environ.get('REPO_DATA_DIR', os.path.join(BASE_DIR, 'repo_data'))
+# 如果在 Docker 环境中，优先使用 /data
+if os.path.exists('/data') and os.path.isdir('/data'):
+    REPO_DIR = '/data'
 os.makedirs(REPO_DIR, exist_ok=True)
 
 # Checked proxies persistence — per-token checked history
