@@ -1063,6 +1063,43 @@ function addToRepoByGrade(grade){
   }
 }
 
+function addFilteredToRepoByGrade(grade){
+  document.getElementById('gradeDropdown').classList.remove('open');
+  var all=V.concat(U);
+
+  // 应用当前的筛选条件
+  var validFilter=activeFilter('#vFilters');
+  var filtered=all.filter(function(r){
+    // 应用普通筛选
+    if(!resultPassesValidFilter(r,validFilter))return false;
+    // 应用国家筛选
+    if(currentValidCountryFilter!=='all'){
+      var country=r.country?String(r.country).toUpperCase():'';
+      if(country!==currentValidCountryFilter)return false;
+    }
+    // 应用等级筛选
+    if(grade!=='ALL'){
+      if((r.grade||'F')!==grade)return false;
+    }
+    return true;
+  });
+
+  if(!filtered.length){
+    var msg='没有符合筛选条件';
+    if(grade!=='ALL')msg+='且等级为 '+grade;
+    msg+=' 的代理';
+    toast(msg);
+    return;
+  }
+
+  var changed=addRepoItems(filtered.map(resultToRepoItem));
+  if(changed.added>0||changed.updated>0){
+    toast('已同步仓库: 新增 '+changed.added+' 个，更新 '+changed.updated+' 个');
+  }else{
+    toast('仓库中已存在这些代理');
+  }
+}
+
 // ============================================================
 // [5] 我的仓库 — localStorage persistence
 // ============================================================
