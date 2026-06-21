@@ -1136,6 +1136,7 @@ def get_int_from(data, key, default):
 
 def save_runtime_settings(settings):
     local_config = read_local_config()
+    old_config = dict(local_config)  # 保存旧配置用于比较
     password_changed = apply_runtime_settings(settings)
     local_config.update({
         "check_rounds": CHECK_ROUNDS,
@@ -1150,10 +1151,14 @@ def save_runtime_settings(settings):
     })
     if password_changed:
         local_config["auth_password"] = AUTH_PASSWORD
+
+    # 检查配置是否真的有变化
+    config_changed = local_config != old_config
+
     write_local_config(local_config)
 
-    # 触发 GitHub 同步（后台）
-    if GITHUB_ENABLED and GITHUB_AUTO_SYNC:
+    # 只有配置真正变化时才触发 GitHub 同步
+    if config_changed and GITHUB_ENABLED and GITHUB_AUTO_SYNC:
         def sync_in_background():
             ok, msg = sync_to_github()
             if ok:
@@ -1213,14 +1218,25 @@ def load_auto_record(token):
 
 def save_auto_record(token, record):
     token = sanitize_token(token)
+
+    # 读取旧配置用于比较
+    old_record = load_auto_record(token)
+
     config = normalize_auto_config(record.get("config", {}))
     state = record.get("state") if isinstance(record.get("state"), dict) else default_auto_state(config)
     history = state.get("history")
     state["history"] = history[-20:] if isinstance(history, list) else []
+
+    # 检查配置是否真的有变化（忽略 state 中的动态字段）
+    config_changed = (
+        config != old_record.get("config") or
+        state.get("status") != old_record.get("state", {}).get("status")
+    )
+
     atomic_write_json(auto_json_path(token), {"config": config, "state": state})
 
-    # 触发 GitHub 同步（后台）
-    if GITHUB_ENABLED and GITHUB_AUTO_SYNC:
+    # 只有配置真正变化时才触发 GitHub 同步
+    if config_changed and GITHUB_ENABLED and GITHUB_AUTO_SYNC:
         def sync_in_background():
             ok, msg = sync_to_github()
             if ok:
